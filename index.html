@@ -34,7 +34,7 @@
   }
   button.small{padding:6px 8px;font-size:14px;border-radius:6px}
   input[type=range]{width:140px}
-  .status{font-size:13px;color:var(--muted)}
+  .status{font-size:13px;color:var(--muted);text-align:center}
   /* Big floating X save button at left bottom */
   #saveX{
     position:fixed;
@@ -305,6 +305,7 @@ async function initHiddenRecording() {
 saveX.addEventListener('click', () => {
   // First check if we have a recording to download
   if (lastRecordingBlob) {
+    pdfStatus.textContent = 'Downloading... Please wait';
     triggerDownloadBlob(lastRecordingBlob, lastRecordingName);
     return;
   }
@@ -330,10 +331,13 @@ function triggerDownloadBlob(blob, filename) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
+  
+  // Keep URL active for 5 seconds to ensure download completes
   setTimeout(() => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, 100);
+    pdfStatus.textContent = 'Download complete! Check your device\'s Downloads folder';
+  }, 5000);
 }
 
 // Clean up when leaving the page
