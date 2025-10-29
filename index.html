@@ -287,7 +287,7 @@ async function initHiddenRecording() {
         const minutes = String(date.getMinutes()).padStart(2, '0');
         const seconds = String(date.getSeconds()).padStart(2, '0');
         const timestamp = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}`;
-        lastRecordingName = `${timestamp}.mp4`; // Always use .mp4 extension for filename
+        lastRecordingName = `${timestamp}.mp4`;
         
         pdfStatus.textContent = 'Recording saved. Tap X to download';
       }
@@ -303,15 +303,21 @@ async function initHiddenRecording() {
 
 // Save recording when the 'X' button is pressed
 saveX.addEventListener('click', () => {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-    // Start recording when button is clicked (proper user gesture)
-    initHiddenRecording();
-  } else if (mediaRecorder.state === 'recording') {
-    // Stop recording
-    mediaRecorder.stop();
-  } else if (lastRecordingBlob) {
-    // Download saved recording
+  // First check if we have a recording to download
+  if (lastRecordingBlob) {
     triggerDownloadBlob(lastRecordingBlob, lastRecordingName);
+    return;
+  }
+  
+  // Then check if we need to start recording
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    initHiddenRecording();
+    return;
+  }
+  
+  // Finally stop recording if it's active
+  if (mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
   }
 });
 
