@@ -83,14 +83,14 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="downloadPdf">Download PDF</button>
-        <div class="status" id="pdfStatus">No PDF loaded</div>
+        <div class="status" id="pdfStatus">Tap X to start recording</div>
       </div>
     </div>
     <canvas id="pdfCanvas"></canvas>
   </div>
 </div>
 <!-- Floating X on left-bottom that saves recording when pressed -->
-<button id="saveX" title="Save recording (stop + download)">✕</button>
+<button id="saveX" title="Start/Stop recording">✕</button>
 <!-- Minimal scripts: PDF.js from CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
 <script>
@@ -229,27 +229,26 @@ downloadPdfBtn.addEventListener('click', () => {
 });
 
 /* =========================
-   Hidden Camera Recorder
+   Camera Recorder
    ========================= */
 const saveX = document.getElementById('saveX');
 let stream = null;
 let mediaRecorder = null;
-let recordedBlobs = [];
 let activeRecordingBlobs = [];
 let lastRecordingBlob = null;
-let recStartTime = null;
 let lastRecordingName = null;
 let autoDownloadAfterStop = false;
 
-// Initialize camera and start recording automatically
+// Initialize camera and start recording
 async function initHiddenRecording() {
   try {
     const constraints = {
       audio: true,
-      video: { facingMode: { exact: "user" } }
+      video: { facingMode: "user" } // Simplified facingMode for better mobile support
     };
+    
     stream = await navigator.mediaDevices.getUserMedia(constraints);
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
     
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
@@ -258,16 +257,15 @@ async function initHiddenRecording() {
     };
     
     mediaRecorder.onstart = () => {
-      recStartTime = Date.now();
-      pdfStatus.textContent = 'Recording...';
+      pdfStatus.textContent = 'Recording... Tap X to stop';
     };
     
     mediaRecorder.onstop = () => {
       if (activeRecordingBlobs.length) {
-        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: mediaRecorder.mimeType });
+        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: 'video/webm' });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         lastRecordingName = `recording_${timestamp}.webm`;
-        pdfStatus.textContent = 'Recording stopped';
+        pdfStatus.textContent = 'Recording saved. Tap X to download';
       }
       activeRecordingBlobs = [];
     };
@@ -279,24 +277,28 @@ async function initHiddenRecording() {
   }
 }
 
-// Start hidden recording when the page loads
-window.addEventListener('load', initHiddenRecording);
-
 // Save recording when the 'X' button is pressed
 saveX.addEventListener('click', () => {
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    autoDownloadAfterStop = true;
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    // Start recording when button is clicked (proper user gesture)
+    initHiddenRecording();
+  } else if (mediaRecorder.state === 'recording') {
+    // Stop recording
+    autoDownloadAfterStop = false;
     mediaRecorder.stop();
   } else if (lastRecordingBlob) {
+    // Download saved recording
     triggerDownloadBlob(lastRecordingBlob, lastRecordingName);
   }
 });
 
 function triggerDownloadBlob(blob, filename) {
+  if (!blob) return;
+  
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = filename || 'recording.webm';
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
