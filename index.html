@@ -237,18 +237,32 @@ let mediaRecorder = null;
 let activeRecordingBlobs = [];
 let lastRecordingBlob = null;
 let lastRecordingName = null;
-let autoDownloadAfterStop = false;
+let mimeType = 'video/webm';
+
+// Check supported MIME types for recording
+const checkSupportedMimeTypes = () => {
+  const supportedTypes = ['video/mp4', 'video/webm'];
+  for (const type of supportedTypes) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      mimeType = type;
+      return;
+    }
+  }
+  mimeType = 'video/webm'; // fallback
+};
 
 // Initialize camera and start recording
 async function initHiddenRecording() {
   try {
+    checkSupportedMimeTypes();
+    
     const constraints = {
       audio: true,
-      video: { facingMode: "user" } // Simplified facingMode for better mobile support
+      video: { facingMode: "user" }
     };
     
     stream = await navigator.mediaDevices.getUserMedia(constraints);
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
     
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
@@ -262,9 +276,19 @@ async function initHiddenRecording() {
     
     mediaRecorder.onstop = () => {
       if (activeRecordingBlobs.length) {
-        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: 'video/webm' });
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        lastRecordingName = `recording_${timestamp}.webm`;
+        lastRecordingBlob = new Blob(activeRecordingBlobs, { type: mimeType });
+        
+        // Format timestamp as YYYY-MM-DD-HH-MM-SS
+        const date = new Date();
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        const timestamp = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}`;
+        lastRecordingName = `${timestamp}.mp4`; // Always use .mp4 extension for filename
+        
         pdfStatus.textContent = 'Recording saved. Tap X to download';
       }
       activeRecordingBlobs = [];
@@ -284,7 +308,6 @@ saveX.addEventListener('click', () => {
     initHiddenRecording();
   } else if (mediaRecorder.state === 'recording') {
     // Stop recording
-    autoDownloadAfterStop = false;
     mediaRecorder.stop();
   } else if (lastRecordingBlob) {
     // Download saved recording
@@ -298,7 +321,7 @@ function triggerDownloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename || 'recording.webm';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
