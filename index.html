@@ -75,13 +75,14 @@
     </div>
     <div class="pdf-toolbar" style="justify-content:space-between;">
       <div style="display:flex;gap:8px;align-items:center;">
-        <input id="pdfUrl" type="url" placeholder="https://example.com/file.pdf" style="width:260px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit" />
+        <input id="pdfUrl" type="url" placeholder="https://example.com/file.pdf " style="width:260px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit" />
         <button id="loadUrl">Load URL</button>
         <label class="hint">Zoom</label>
         <input id="zoom" type="range" min="0.25" max="2.5" step="0.05" value="1">
         <div class="hint" id="zoomVal">100%</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
+        <button id="fullscreenBtn">Fullscreen</button>
         <button id="downloadPdf">Download PDF</button>
         <div class="status" id="pdfStatus">Tap X to start recording</div>
       </div>
@@ -101,6 +102,7 @@ const pdfFileInput = document.getElementById('pdfFile');
 const pdfUrlInput  = document.getElementById('pdfUrl');
 const loadUrlBtn   = document.getElementById('loadUrl');
 const downloadPdfBtn = document.getElementById('downloadPdf');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
 const pdfCanvas = document.getElementById('pdfCanvas');
 const pdfCtx = pdfCanvas.getContext('2d');
 const prevPageBtn = document.getElementById('prevPage');
@@ -226,6 +228,20 @@ downloadPdfBtn.addEventListener('click', () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, 100);
+});
+
+// Fullscreen functionality
+fullscreenBtn.addEventListener('click', () => {
+  const canvas = document.getElementById('pdfCanvas');
+  if (canvas.requestFullscreen) {
+    canvas.requestFullscreen();
+  } else if (canvas.webkitRequestFullscreen) {
+    canvas.webkitRequestFullscreen();
+  } else if (canvas.mozRequestFullScreen) {
+    canvas.mozRequestFullScreen();
+  } else if (canvas.msRequestFullscreen) {
+    canvas.msRequestFullscreen();
+  }
 });
 
 /* =========================
