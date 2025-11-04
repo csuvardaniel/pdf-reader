@@ -75,7 +75,7 @@
     </div>
     <div class="pdf-toolbar" style="justify-content:space-between;">
       <div style="display:flex;gap:8px;align-items:center;">
-        <input id="pdfUrl" type="url" placeholder="https://example.com/file.pdf " style="width:260px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit" />
+        <input id="pdfUrl" type="url" placeholder="https://example.com/file.pdf  " style="width:260px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit" />
         <button id="loadUrl">Load URL</button>
         <label class="hint">Zoom</label>
         <input id="zoom" type="range" min="0.25" max="2.5" step="0.05" value="1">
@@ -93,7 +93,7 @@
 <!-- Floating X on left-bottom that saves recording when pressed -->
 <button id="saveX" title="Start/Stop recording">✕</button>
 <!-- Minimal scripts: PDF.js from CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js "></script>
 <script>
 /* =========================
    PDF Reader (PDF.js)
@@ -116,12 +116,92 @@ let currentPage = 1;
 let pdfScale = parseFloat(zoomRange.value);
 let loadedPdfArrayBuffer = null;
 
+// Touch handling setup
+let touchState = {
+  swipeStartX: 0,
+  swipeStartY: 0,
+  pinchStartDistance: 0,
+  pinchCurrentZoom: 0,
+  isSwiping: false,
+  isPinching: false
+};
+
+function handleTouchStart(e) {
+  e.preventDefault();
+  const touches = e.touches;
+  if (touches.length === 1) {
+    touchState.swipeStartX = touches[0].clientX;
+    touchState.swipeStartY = touches[0].clientY;
+    touchState.isSwiping = true;
+    touchState.isPinching = false;
+  } else if (touches.length === 2) {
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    const distance = Math.sqrt(dx*dx + dy*dy);
+    touchState.pinchStartDistance = distance;
+    touchState.pinchCurrentZoom = parseFloat(zoomRange.value);
+    touchState.isPinching = true;
+    touchState.isSwiping = false;
+  }
+}
+
+function handleTouchMove(e) {
+  e.preventDefault();
+  const touches = e.touches;
+  if (touchState.isSwiping && touches.length === 1) {
+    // For swipe, just track movement
+  } else if (touchState.isPinching && touches.length === 2) {
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    const currentDistance = Math.sqrt(dx*dx + dy*dy);
+    const scaleFactor = currentDistance / touchState.pinchStartDistance;
+    let newZoom = touchState.pinchCurrentZoom * scaleFactor;
+    const minZoom = 0.25;
+    const maxZoom = 2.5;
+    newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
+    zoomRange.value = newZoom;
+    zoomVal.textContent = Math.round(newZoom * 100) + '%';
+    if (pdfDoc) {
+      renderPage(currentPage);
+    }
+  }
+}
+
+function handleTouchEnd(e) {
+  if (touchState.isSwiping) {
+    const touches = e.changedTouches;
+    if (touches.length > 0) {
+      const endX = touches[0].clientX;
+      const endY = touches[0].clientY;
+      const deltaX = endX - touchState.swipeStartX;
+      const deltaY = endY - touchState.swipeStartY;
+      if (Math.abs(deltaX) > Math.abs(deltaY)) {
+        const threshold = 50;
+        if (Math.abs(deltaX) > threshold) {
+          if (deltaX < 0) {
+            nextPageBtn.click();
+          } else {
+            prevPageBtn.click();
+          }
+        }
+      }
+    }
+    touchState.isSwiping = false;
+  }
+  touchState.isPinching = false;
+}
+
+// Add touch event listeners
+pdfCanvas.addEventListener('touchstart', handleTouchStart);
+pdfCanvas.addEventListener('touchmove', handleTouchMove);
+pdfCanvas.addEventListener('touchend', handleTouchEnd);
+
 // Ensure PDF.js is loaded before using it
 if (typeof pdfjsLib === 'undefined') {
   pdfStatus.textContent = 'PDF.js failed to load';
   console.error('PDF.js not loaded');
 } else {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js ';
 }
 
 function renderPage(num) {
